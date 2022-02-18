@@ -1,0 +1,3 @@
+[submodule "BQN-Gnuplot"]
+	path = BQN-Gnuplot
+	url = https://github.com/frasiyav/BQN-Gnuplot
