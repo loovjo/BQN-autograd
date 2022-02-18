@@ -1,47 +1,74 @@
 ⟨Dual⟩ ← •Import "dual.bqn"
 ⟨GnuPlot⟩ ← •Import "BQN-Gnuplot/Gnuplot.bqn"
-rng ← •MakeRand 0
+rng ← •MakeRand 2
 
-lr ← 0.01
+# Two layer neural network with weights and biases. Both layers are sigmoid activated
+Network ← {lr 𝕊 insz‿hidsz‿outsz:
+    ⟨insz, outsz, lr⟩ ⇐
 
-# Single layer neural network with weights, biases and a sigmoid activation function
-Network ← {insz 𝕊 outsz:
-    ⟨insz, outsz⟩ ⇐
+    real_l1_weights ← hidsz‿insz rng.Range 0
+    real_l1_biases ← hidsz rng.Range 0
 
-    real_weights ← outsz‿insz rng.Range 0
-    real_biases ← outsz rng.Range 0
+    real_l2_weights ← outsz‿hidsz rng.Range 0
+    real_l2_biases ← outsz rng.Range 0
 
-    n_params ⇐ (outsz×insz) + outsz
+    n_params ⇐ (hidsz×insz) + hidsz + (outsz×hidsz) + outsz
 
     z ⇐ 0 Dual n_params⥊0
 
-    weights ⇐ (↕≢real_weights) {o‿i 𝕊 w:
-        idx ← (o × insz) + i
+    l1_weights ⇐ (↕≢real_l1_weights) {h‿i 𝕊 w:
+        idx ← (h × insz) + i
         eps ← 1⌾(idx⊸⊑) n_params⥊0
         w Dual eps
-    }¨real_weights
+    }¨real_l1_weights
 
-    biases ⇐ (↕≢real_biases) {o 𝕊 w:
-        idx ← (outsz × insz) + o
+    l1_biases ⇐ (↕≢real_l1_biases) {h 𝕊 w:
+        idx ← (hidsz × insz) + h
         eps ← 1⌾(idx⊸⊑) n_params⥊0
         w Dual eps
-    }¨real_biases
+    }¨real_l1_biases
+
+    l2_weights ⇐ (↕≢real_l2_weights) {o‿h 𝕊 w:
+        idx ← (hidsz × insz) + hidsz + (o × hidsz) + h
+        eps ← 1⌾(idx⊸⊑) n_params⥊0
+        w Dual eps
+    }¨real_l2_weights
+
+    l2_biases ⇐ (↕≢real_l2_biases) {o 𝕊 w:
+        idx ← (hidsz × insz) + hidsz + (outsz × hidsz) + o
+        eps ← 1⌾(idx⊸⊑) n_params⥊0
+        w Dual eps
+    }¨real_l2_biases
+
 
     Forward ⇐ {
         x ← 𝕩
-        # x ↩ W * x
+        # x ↩ W1 * x
         x ↩ {
             elementwise ← 𝕩 {𝕨.Mul 𝕩}¨ x
             total ← z {𝕨.Add 𝕩}´ elementwise
             total
-        }˘weights
+        }˘l1_weights
 
-        # x ↩ x + b
-        x ↩ biases {
-            𝕨.Add 𝕩
-        }¨ x
+        # x ↩ x + b1
+        x ↩ l1_biases { 𝕨.Add 𝕩 }¨ x
+
         # x ↩ sigmoid(x) = 1 ÷ (1 + exp(-x))
         x ↩ { ((𝕩.EExp@).Add 1).PowC ¯1}¨ x
+
+        # x ↩ W2 * x
+        x ↩ {
+            elementwise ← 𝕩 {𝕨.Mul 𝕩}¨ x
+            total ← z {𝕨.Add 𝕩}´ elementwise
+            total
+        }˘l2_weights
+
+        # x ↩ x + b2
+        x ↩ l2_biases { 𝕨.Add 𝕩 }¨ x
+
+        # x ↩ sigmoid(x) = 1 ÷ (1 + exp(-x))
+        x ↩ { ((𝕩.EExp@).Add 1).PowC ¯1}¨ x
+        x
     }
 
     Objective ⇐ {real_y 𝕊 y_hat:
@@ -49,15 +76,25 @@ Network ← {insz 𝕊 outsz:
         z {𝕨.Add 𝕩}´ net.z {𝕨.Add 𝕩}´˘ se
     }
     Update ⇐ {𝕊 loss:
-        weights ↩ (↕≢weights) {o‿i 𝕊 w:
-            idx ← (o × insz) + i
+        l1_weights ↩ (↕≢l1_weights) {h‿i 𝕊 w:
+            idx ← (h × insz) + i
             w.Sub lr × idx ⊑ loss.eps
-        }¨weights
+        }¨l1_weights
 
-        biases ↩ (↕≢biases) {o 𝕊 w:
-            idx ← (outsz × insz) + o
+        l1_biases ↩ (↕≢l1_biases) {h 𝕊 w:
+            idx ← (hidsz × insz) + h
             w.Sub lr × idx ⊑ loss.eps
-        }¨biases
+        }¨l1_biases
+
+        l2_weights ↩ (↕≢l2_weights) {o‿h 𝕊 w:
+            idx ← (hidsz × insz) + hidsz + (o × hidsz) + h
+            w.Sub lr × idx ⊑ loss.eps
+        }¨l2_weights
+
+        l2_biases ↩ (↕≢l2_biases) {o 𝕊 w:
+            idx ← (hidsz × insz) + hidsz + (outsz × hidsz) + o
+            w.Sub lr × idx ⊑ loss.eps
+        }¨l2_biases
     }
 }
 
@@ -71,22 +108,22 @@ Network ← {insz 𝕊 outsz:
 #     ⟨⟨20, 10, 0⟩, ⟨1, 0⟩⟩,
 # ⟩
 
-# f(x, y, z) = ⟨~x | y, y | z⟩
+# f(x, y, z) = ⟨x ^ y, y | z⟩
 
 train_data ← ⟨
-    ⟨⟨0, 0, 0⟩, ⟨1, 0⟩⟩,
-    ⟨⟨0, 0, 1⟩, ⟨1, 1⟩⟩,
+    ⟨⟨0, 0, 0⟩, ⟨0, 0⟩⟩,
+    ⟨⟨0, 0, 1⟩, ⟨0, 1⟩⟩,
     ⟨⟨0, 1, 0⟩, ⟨1, 1⟩⟩,
     ⟨⟨0, 1, 1⟩, ⟨1, 1⟩⟩,
-    ⟨⟨1, 0, 0⟩, ⟨0, 0⟩⟩,
-    ⟨⟨1, 0, 1⟩, ⟨0, 1⟩⟩,
-    ⟨⟨1, 1, 0⟩, ⟨1, 1⟩⟩,
-    ⟨⟨1, 1, 1⟩, ⟨1, 1⟩⟩,
+    ⟨⟨1, 0, 0⟩, ⟨1, 0⟩⟩,
+    ⟨⟨1, 0, 1⟩, ⟨1, 1⟩⟩,
+    ⟨⟨1, 1, 0⟩, ⟨0, 1⟩⟩,
+    ⟨⟨1, 1, 1⟩, ⟨0, 1⟩⟩,
 ⟩
 train_x ← > {F x‿y: x}¨ train_data
 train_y ← > {F x‿y: y}¨ train_data
 
-net ← 3 Network 2
+net ← 0.1 Network 3‿5‿2
 
 loss_history ← ↕0
 
@@ -111,15 +148,13 @@ Step ← {𝕊 loud:
 
     loss ← train_y net.Objective y_hat
 
-    •Out "loss = " ∾ •Fmt loss.n
-
     net.Update loss
 
     loss_history ↩ loss_history ∾ ⟨loss.n⟩
 }
 
 Show 1
-Step⍟1000 0
+Step⍟2000 0
 Show 1
 
 # plot loss history
